@@ -1,157 +1,167 @@
 #!/usr/bin/env python3
 """
-Test database connectivity to Prisma Postgres
-Run: python test_db_connection.py
+Test database connectivity for the Supabase multi-tenant setup.
+
+Run:
+    python test_db_connection.py                 # central superadmin database
+    python test_db_connection.py --org my-org    # a specific organization DB
+
+The central connection string comes from SUPERADMIN_DATABASE_URL in .env;
+organization credentials are read from the superadmin database itself.
 """
 
-import sys
-import os
+import argparse
 import asyncio
+import os
+import sys
 
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import settings
-from database import connect_db, disconnect_db, get_db
+from database import connect_db, disconnect_db, superadmin_store
+from db.provision import test_database_connection
+from db.util import redact, redact_url
 
 
-async def test_connection():
-    """Test connection to Prisma database"""
+async def test_superadmin_database() -> bool:
+    """Test the central superadmin database (org registry + portal accounts)."""
     print("=" * 60)
-    print("Testing Prisma Postgres Database Connection")
+    print("Testing central SUPERADMIN Supabase database")
     print("=" * 60)
     print()
-    
-    # Test 1: Load environment variables
+
+    # Test 1: environment
     print("1. Checking environment variables...")
     try:
-        print(f"   ✓ DATABASE_URL: {settings.DATABASE_URL[:50]}...")
+        print(f"   ✓ SUPERADMIN_DATABASE_URL: {redact_url(settings.SUPERADMIN_DATABASE_URL)}")
     except Exception as e:
         print(f"   ✗ Error loading environment variables: {str(e)}")
         return False
     print()
-    
-    # Test 2: Connect to database
-    print("2. Connecting to Prisma database...")
+
+    # Test 2: connect + auto-apply schema
+    print("2. Connecting to the superadmin database...")
     try:
         await connect_db()
-        print("   ✓ Database connected successfully")
+        print("   ✓ Connected (schema applied automatically)")
     except Exception as e:
-        print(f"   ✗ Error connecting to database: {str(e)}")
+        print(f"   ✗ Error connecting to database: {redact(str(e))}")
         return False
     print()
-    
-    # Test 3: Test database connection - Check if users table exists
-    print("3. Testing database connection (checking users table)...")
+
+    # Test 3: tables
+    print("3. Checking superadmin tables...")
     try:
-        db = get_db()
-        # Try to count users
-        user_count = await db.users.count()
-        print(f"   ✓ Successfully connected to database")
-        print(f"   ✓ Users table exists")
-        print(f"   ✓ Total users in table: {user_count}")
+        store = superadmin_store()
+        superadmin_count = await store.client.superadmins.count()
+        org_count = await store.client.organizations.count()
+        directory_count = await store.client.org_directory.count()
+        print(f"   ✓ superadmins table: {superadmin_count} account(s)")
+        print(f"   ✓ organizations table: {org_count} organization(s)")
+        print(f"   ✓ org_directory table: {directory_count} entry(ies)")
+        if superadmin_count == 0:
+            print("   ⚠ No superadmin account yet - create one with:")
+            print("     python create_superadmin.py --name \"Your Name\" --email you@example.com")
     except Exception as e:
-        error_str = str(e).lower()
-        if "does not exist" in error_str or "relation" in error_str:
-            print(f"   ✗ Users table does not exist in database")
-            print(f"   ✗ Please create the users table first")
+        print(f"   ✗ Error checking tables: {redact(str(e))}")
+        return False
+    print()
+
+    # Test 4: list organizations
+    print("4. Registered organizations...")
+    try:
+        store = superadmin_store()
+        orgs = await store.list_orgs()
+        if orgs:
+            for org in orgs:
+                print(f"   • {org.name} [{org.slug}] - {org.status} - {redact_url(org.database_url)}")
         else:
-            print(f"   ✗ Error connecting to database: {str(e)}")
-        return False
-    print()
-    
-    # Test 4: Test basic query
-    print("4. Testing basic query (fetching user count)...")
-    try:
-        db = get_db()
-        users = await db.users.find_many()
-        print(f"   ✓ Query executed successfully")
-        print(f"   ✓ Found {len(users)} user(s) in database")
+            print("   (none yet - create one from the superadmin portal)")
     except Exception as e:
-        print(f"   ✗ Error executing query: {str(e)}")
+        print(f"   ✗ Error listing organizations: {redact(str(e))}")
         return False
     print()
-    
-    # Test 5: Check table schema
-    print("5. Checking users table schema...")
-    try:
-        db = get_db()
-        # Try to query all columns
-        users = await db.users.find_first()
-        if users:
-            print("   ✓ All required columns exist:")
-            print("     - id")
-            print("     - name")
-            print("     - email")
-            print("     - password")
-            print("     - role_id")
-            print("     - created_at")
-        else:
-            print("   ✓ Table structure verified (no users yet)")
-    except Exception as e:
-        error_str = str(e).lower()
-        if "column" in error_str and "does not exist" in error_str:
-            print(f"   ✗ Missing column in users table: {str(e)}")
-            print(f"   ✗ Please check your table schema")
-        else:
-            print(f"   ✗ Error checking schema: {str(e)}")
-        return False
-    print()
-    
-    # Test 6: Test role_id values
-    print("6. Checking role_id values...")
-    try:
-        db = get_db()
-        users = await db.users.find_many()
-        if users:
-            print(f"   ✓ Found users with role_ids:")
-            for user in users:
-                role_name = "Admin" if user.role_id == 1 else "Staff" if user.role_id == 2 else "Unknown"
-                print(f"     - {user.email}: role_id={user.role_id} ({role_name})")
-        else:
-            print("   ✓ No users found (this is okay for a new database)")
-    except Exception as e:
-        print(f"   ✗ Error checking role_ids: {str(e)}")
-        return False
-    print()
-    
-    # Test 7: Check other tables
-    print("7. Checking other tables...")
-    try:
-        db = get_db()
-        categories_count = await db.categories.count()
-        inventory_count = await db.inventory.count()
-        sales_count = await db.sales.count()
-        expenses_count = await db.expenses.count()
-        
-        print(f"   ✓ Categories table: {categories_count} records")
-        print(f"   ✓ Inventory table: {inventory_count} records")
-        print(f"   ✓ Sales table: {sales_count} records")
-        print(f"   ✓ Expenses table: {expenses_count} records")
-    except Exception as e:
-        print(f"   ✗ Error checking other tables: {str(e)}")
-        return False
-    print()
-    
-    # Disconnect
-    print("8. Disconnecting from database...")
-    try:
-        await disconnect_db()
-        print("   ✓ Disconnected successfully")
-    except Exception as e:
-        print(f"   ✗ Error disconnecting: {str(e)}")
-        return False
-    print()
-    
-    print("=" * 60)
-    print("✓ All database connection tests passed!")
-    print("=" * 60)
+
     return True
+
+
+async def test_org_database(slug: str) -> bool:
+    """Test one organization's Supabase database."""
+    print("=" * 60)
+    print(f"Testing organization database: {slug}")
+    print("=" * 60)
+    print()
+
+    store = superadmin_store()
+    org = await store.get_org_by_slug(slug)
+    if not org:
+        print(f"   ✗ No organization with slug '{slug}'")
+        return False
+
+    print(f"   ✓ Organization: {org.name} ({org.status})")
+    print(f"   ✓ URL: {redact_url(org.database_url)}")
+    print()
+
+    print("1. Testing connection...")
+    result = await test_database_connection(org.database_url)
+    if not result["ok"]:
+        print(f"   ✗ {result['message']}")
+        return False
+    print(f"   ✓ Connected in {result['latency_ms']} ms")
+    print()
+
+    print("2. Checking application schema...")
+    if result["schema_ready"]:
+        print("   ✓ All tables present (users, categories, inventory, sales, expenses)")
+        print("   ✓ invoice_seq sequence present")
+    else:
+        print("   ⚠ Schema incomplete - run reprovision from the portal, or:")
+        print("     POST /api/superadmin/organizations/{id}/reprovision")
+    print()
+
+    print("3. Counting rows...")
+    try:
+        from database import ensure_org_pool, get_org_client
+
+        await ensure_org_pool(org.id, org.database_url)
+        tenant = get_org_client(org.id)
+        print(f"   ✓ users: {await tenant.users.count()}")
+        print(f"   ✓ categories: {await tenant.categories.count()}")
+        print(f"   ✓ inventory: {await tenant.inventory.count()}")
+        print(f"   ✓ sales: {await tenant.sales.count()}")
+        print(f"   ✓ expenses: {await tenant.expenses.count()}")
+    except Exception as e:
+        print(f"   ✗ Error counting rows: {redact(str(e))}")
+        return False
+    print()
+
+    return True
+
+
+async def main() -> bool:
+    parser = argparse.ArgumentParser(description="Test Supabase database connectivity")
+    parser.add_argument("--org", help="slug of a registered organization to test")
+    args = parser.parse_args()
+
+    ok = await test_superadmin_database()
+    if ok and args.org:
+        ok = await test_org_database(args.org)
+
+    await disconnect_db()
+
+    print("=" * 60)
+    if ok:
+        print("✓ All database connection tests passed!")
+    else:
+        print("✗ Database connection tests failed")
+    print("=" * 60)
+    return ok
 
 
 if __name__ == "__main__":
     try:
-        success = asyncio.run(test_connection())
+        success = asyncio.run(main())
         sys.exit(0 if success else 1)
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")

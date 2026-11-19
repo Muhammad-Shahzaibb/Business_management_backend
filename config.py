@@ -12,8 +12,12 @@ class Settings(BaseSettings):
     app fails fast at startup if they are missing.
     """
 
-    # Database (required)
-    DATABASE_URL: str
+    # Central superadmin database (required) - Supabase Postgres connection
+    # string of the ONE central project. It stores the organization registry,
+    # the login directory and the superadmin accounts. Every organization has
+    # its own separate Supabase project whose credentials are configured
+    # through the superadmin portal (stored in this database, not in .env).
+    SUPERADMIN_DATABASE_URL: str
 
     # JWT (secret is required - never ship a default)
     JWT_SECRET_KEY: str

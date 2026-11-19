@@ -26,6 +26,7 @@ RUN useradd -m -u 1000 appuser
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
+    ca-certificates \
     curl \
     libatomic1 \
     && rm -rf /var/lib/apt/lists/*
@@ -42,10 +43,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000 \
     HOME=/home/appuser
-
-# Generate Prisma Client (HOME=/home/appuser ensures cache goes to appuser directory)
-RUN python -m prisma generate && \
-    chown -R appuser:appuser /home/appuser
 
 # Switch to non-root user
 USER appuser

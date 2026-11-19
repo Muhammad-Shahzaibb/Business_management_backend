@@ -1,3 +1,17 @@
+-- ============================================================================
+-- LEGACY FILE - kept for reference only.
+--
+-- This script predates the current schema and no longer matches it (it is
+-- missing invoice_no, entry_date, edited, the Khata fields, ...).
+--
+-- The authoritative schemas are now:
+--   * database/tenant_schema.sql       - applied automatically when an
+--                                        organization is created
+--   * database/superadmin_schema.sql   - applied automatically on backend
+--                                        startup
+-- Do not run this file against a new database.
+-- ============================================================================
+
 -- Users table (already exists)
 -- Ensure users table exists with correct structure
 CREATE TABLE IF NOT EXISTS users (

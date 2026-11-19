@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from models.schemas import UserResponse, UserPasswordUpdate
 from dependencies import get_current_admin
-from database import get_db
+from database import get_current_org, get_db, superadmin_store
 from services.passwords import hash_password
 from errors import server_error
 
@@ -107,7 +107,18 @@ async def delete_user(
         await db.users.delete(
             where={"id": user_id}
         )
-        
+
+        # Keep the central login directory in sync so the email can be
+        # registered to an organization again later.
+        try:
+            context = get_current_org()
+            if context is not None:
+                await superadmin_store().remove_directory(user.email, context.org_id)
+        except Exception:
+            # Non-fatal: the tenant user is gone; a stale directory row only
+            # means login keeps failing for an account that no longer exists.
+            pass
+
         return None
     except HTTPException:
         raise

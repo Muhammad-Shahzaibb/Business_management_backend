@@ -23,7 +23,11 @@ async def _rate_limited_login(request: Request, portal: str, body, login_fn) -> 
     key = login_key(request, portal, body.email)
     login_limiter.check(key)
     try:
-        auth_data, user = await login_fn(email=body.email, password=body.password)
+        auth_data, user = await login_fn(
+            email=body.email,
+            password=body.password,
+            org_slug=getattr(body, "org_slug", None),
+        )
     except HTTPException as e:
         if e.status_code == status.HTTP_401_UNAUTHORIZED:
             login_limiter.record_failure(key)

@@ -8,11 +8,16 @@ from services.passwords import validate_password_strength
 class AdminLoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Only needed if the same email is registered to more than one
+    # organization; normally the backend resolves the organization from the
+    # email alone (org_directory), so the frontend can omit it.
+    org_slug: Optional[str] = None
 
 
 class StaffLoginRequest(BaseModel):
     email: EmailStr
     password: str
+    org_slug: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -315,3 +320,88 @@ class MonthlyReportResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Superadmin portal schemas
+# ---------------------------------------------------------------------------
+class SuperadminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class OrganizationAdminCreate(BaseModel):
+    """First administrator created inside a new organization's database."""
+    name: str
+    email: EmailStr
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def check_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+
+class OrganizationCreateRequest(BaseModel):
+    """Create an organization by entering fresh Supabase credentials."""
+    name: str
+    slug: Optional[str] = None  # auto-generated from name when omitted
+    # Postgres connection string of the organization's own Supabase project
+    # (Supabase Dashboard -> Connect -> Session pooler / Direct connection).
+    database_url: str
+    supabase_url: Optional[str] = None      # https://<project-ref>.supabase.co
+    service_role_key: Optional[str] = None  # optional, stored for the portal
+    project_ref: Optional[str] = None       # optional Supabase project ref
+    admin: OrganizationAdminCreate
+
+
+class OrganizationUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    status: Optional[str] = None  # 'active' | 'inactive'
+    database_url: Optional[str] = None
+    supabase_url: Optional[str] = None
+    service_role_key: Optional[str] = None
+    project_ref: Optional[str] = None
+
+
+class OrganizationResponse(BaseModel):
+    id: int
+    name: str
+    slug: str
+    status: str
+    project_ref: Optional[str] = None
+    supabase_url: Optional[str] = None
+    # Connection details are never returned in full - only non-secret parts.
+    database_host: Optional[str] = None
+    database_name: Optional[str] = None
+    database_user: Optional[str] = None
+    service_role_key_set: bool = False
+    admin_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class TestDatabaseRequest(BaseModel):
+    """Test a Supabase connection string before saving an organization."""
+    database_url: str
+
+
+class TestConnectionResponse(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: Optional[float] = None
+    schema_ready: Optional[bool] = None
+
+
+class OrgUserCreateRequest(BaseModel):
+    """Create an admin/staff user inside an organization from the portal."""
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "admin"  # 'admin' or 'staff'
+
+    @field_validator("password")
+    @classmethod
+    def check_password(cls, value: str) -> str:
+        return validate_password_strength(value)
